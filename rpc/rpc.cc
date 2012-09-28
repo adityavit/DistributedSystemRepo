@@ -182,7 +182,7 @@ rpcc::cancel(void)
     destroy_wait_ = true;
     VERIFY(pthread_cond_wait(&destroy_wait_c_,&m_) == 0);
   }
-  printf("rpcc::cancel: done\n");
+	printf("rpcc::cancel: done\n");
 }
 
 int
@@ -574,9 +574,11 @@ rpcs::dispatch(djob_t *j)
 				conns_[h.clt_nonce] = c;
 			}
 		}
-
+//		printf("before status call nonce= %u,xid= %u,xid_reply = %u \n",h.clt_nonce,h.xid,h.xid_rep);
 		stat = checkduplicate_and_update(h.clt_nonce, h.xid,
                                                  h.xid_rep, &b1, &sz1);
+//		printf("status returned = %d\n",stat);
+//		printf("NEW:%d\n",NEW);
 	} else {
 		// this client does not require at most once logic
 		stat = NEW;
@@ -629,7 +631,9 @@ rpcs::dispatch(djob_t *j)
 		case INPROGRESS: // server is working on this request
 			break;
 		case DONE: // duplicate and we still have the response
+//			printf("rpcs:: doing DONE request sz1=%d\n",sz1);
 			c->send(b1, sz1);
+//			printf("rpcs:: DONE request completed\n");
 			break;
 		case FORGOTTEN: // very old request and we don't have the response anymore
 			jsl_log(JSL_DBG_2, "rpcs::dispatch: very old request %u from %u\n", 
@@ -660,10 +664,86 @@ rpcs::rpcstate_t
 rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
 		unsigned int xid_rep, char **b, int *sz)
 {
+	
 	ScopedLock rwl(&reply_window_m_);
+	rpcs::rpcstate_t status;
+	if(reply_window_[clt_nonce].size() == 0){
+		status = NEW;
+	}else{
+		bool xid_found = false;
+		bool xid_found_cb_present = false;
+		std::list<reply_t>::iterator reply_iterator = reply_window_[clt_nonce].begin();
+		unsigned int min_xid_reply_value = reply_iterator->xid;
+//		printf("rpcs::checkduplicate_and_update::size of list before iteration=%d\n",reply_window_[clt_nonce].size());
+		while(reply_iterator != reply_window_[clt_nonce].end()){
+			if(reply_iterator->xid == xid){
+				xid_found = true;
+				xid_found_cb_present = reply_iterator->cb_present;
+				*b = reply_iterator->buf;
+				*sz = reply_iterator->sz;
+			}
+			if(reply_iterator->xid < min_xid_reply_value){
+		   		min_xid_reply_value = reply_iterator->xid;
+			}	
+			if(reply_window_[clt_nonce].size() >= sliding_window_size && reply_iterator->xid <= xid_rep){
+//				printf("rpcs::checkduplicate_and_update::removing element=%u which is less than current %u\n",reply_iterator->xid,xid_rep);
+				free((*reply_iterator).buf);
+				reply_iterator = reply_window_[clt_nonce].erase(reply_iterator);
+//				printf("rpcs::checkduplicate_and_update::size again=%d\n",reply_window_[clt_nonce].size());
+			}else{
+				reply_iterator++;
+			}
+		}
+//		std::list<reply_t>::iterator reply_it = reply_window_[clt_nonce].end();
+//		while(reply_it != reply_window_[clt_nonce].begin()){
+//			if(reply_window_[clt_nonce].size() >= sliding_window_size && reply_it->xid <= xid_rep){
+//		
+//				free((*reply_it).buf);
+//				reply_iterator = reply_window_[clt_nonce].erase(reply_it);
+//				reply_it--;
+//			}
+//		}
+//		printf("rpcs::checkduplicate_and_update:: size of the list after iteration= %d\n",reply_window_[clt_nonce].size());
+//	        printf("min_xid_reply_value = %u\n",min_xid_reply_value);
+		if(!xid_found){
+		//either New or forgotten.
+			if(xid < min_xid_reply_value){
+//				printf("rpcs::checkduplicate_and_update:: status = FORGOTTEN\n");
+				status = FORGOTTEN;
+			}else{
+				
+				status = NEW;
+//				printf("rpcs::checkduplicate_and_update:: status = NEW\n");
+			}
+		}else{
+	    		//either Done or Inprogress
+	    		if(xid_found_cb_present == false){
+		  		status = INPROGRESS;	
+//				printf("rpcs::checkduplicate_and_update:: status = INPROGRESS\n");
+			}else{
+		  		status = DONE; 
+//				printf("rpcs::checkduplicate_and_update:: status = DONE\n");
+			} 
+		}
+	}
+	if(status == NEW){
+		std::list<reply_t>::iterator reply_iterator = reply_window_[clt_nonce].begin();
+		reply_t xid_reply(xid);
+		xid_reply.cb_present = false;
+		while(reply_iterator != reply_window_[clt_nonce].end()){
+			if(xid<reply_iterator->xid){
+				reply_iterator = reply_window_[clt_nonce].insert(reply_iterator,xid_reply);
+			break;
+			}
+		reply_iterator++;
+		}
+		if(reply_iterator == reply_window_[clt_nonce].end()){
+			reply_window_[clt_nonce].push_back(xid_reply);
+		}		
+	}
 
         // You fill this in for Lab 1.
-	return NEW;
+	return status;
 }
 
 // rpcs::dispatch calls add_reply when it is sending a reply to an RPC,
@@ -676,6 +756,33 @@ rpcs::add_reply(unsigned int clt_nonce, unsigned int xid,
 		char *b, int sz)
 {
 	ScopedLock rwl(&reply_window_m_);
+//	reply_t xid_reply(xid);
+//	xid_reply.buf = b;
+//	xid_reply.sz = sz;
+//	xid_reply.cb_present = true;
+//	printf("rpcs::add_reply::size value= %d\n",xid_reply.sz);
+//	printf("rpcs::add_reply:: size of the list before check= %d\n",reply_window_[clt_nonce].size());
+	for(std::list<reply_t>::iterator it = reply_window_[clt_nonce].begin();it != reply_window_[clt_nonce].end();it++){
+		if(it->xid == xid){
+			it->buf = b;
+			it->sz = sz;
+			it->cb_present = true;
+		}
+	}
+//	if(reply_window_[clt_nonce].size() != 0){
+//		printf("rpcs::add_reply::Entering when the list is already present\n");
+//		printf("rpcs::add_reply::adding new xid %u=\n",xid_reply.xid);
+//		reply_window_[clt_nonce].push_front (xid_reply);
+//	}else{
+//		printf("rpcs::add_reply::Creating new list\n");
+//		reply_window_[clt_nonce] = std::list<reply_t> (1,xid_reply);
+//	}
+//	printf("rpcs::add_reply:: size of the list after check= %d\n",reply_window_[clt_nonce].size());
+//	printf("rpcs::add_reply::checking values of nonce = %u\n",clt_nonce);
+//	for(std::list<reply_t>::iterator it = reply_window_[clt_nonce].begin();it!=reply_window_[clt_nonce].end();it++){
+//		printf("rpcs::add_reply::xid::%u--> %u\n",clt_nonce,it->xid);
+//	}
+//	printf("rpcs::add_reply::xid_reply_size=%d\n",reply_window_[clt_nonce].size());
         // You fill this in for Lab 1.
 }
 
