@@ -125,11 +125,17 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
   if (FUSE_SET_ATTR_SIZE & to_set) {
     printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
     struct stat st;
+    yfs_client::status status =  yfs->setattr(ino,attr->st_size); 
     // You fill this in for Lab 2
-#if 0
+#if 1
     // Change the above line to "#if 1", and your code goes here
     // Note: fill st using getattr before fuse_reply_attr
-    fuse_reply_attr(req, &st, 0);
+    if(status == yfs_client::OK){
+    	getattr(ino,st);
+    	fuse_reply_attr(req, &st, 0);
+   }else{
+    	fuse_reply_err(req, ENOSYS);
+	}
 #else
     fuse_reply_err(req, ENOSYS);
 #endif
@@ -155,8 +161,9 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
                 off_t off, struct fuse_file_info *fi)
 {
   // You fill this in for Lab 2
-#if 0
+#if 1
   std::string buf;
+  yfs->read(ino,off,size,buf);
   // Change the above "#if 0" to "#if 1", and your code goes here
   fuse_reply_buf(req, buf.data(), buf.size());
 #else
@@ -185,7 +192,8 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
                  struct fuse_file_info *fi)
 {
   // You fill this in for Lab 2
-#if 0
+#if 1
+   yfs->write(ino,buf,size,off);
   // Change the above line to "#if 1", and your code goes here
   fuse_reply_write(req, size);
 #else
@@ -219,14 +227,24 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   e->attr_timeout = 0.0;
   e->entry_timeout = 0.0;
   e->generation = 0;
+//  printf("fuse.cc::_createhelper creating a file in parent %16lx \n",parent);
+//  printf("fuse.cc::_createhelper creating a file with the name %s\n",name);
+  yfs_client::inum fileinum;
+  yfs_client::status status =  yfs->create(parent,name,&fileinum);
+  if(status == yfs_client::OK){
+		e->ino = fileinum;
+		getattr(e->ino,e->attr);			
+	}
+   return status;
   // You fill this in for Lab 2
-  return yfs_client::NOENT;
+ // return yfs_client::NOENT;
 }
 
 void
 fuseserver_create(fuse_req_t req, fuse_ino_t parent, const char *name,
                   mode_t mode, struct fuse_file_info *fi)
 {
+//  printf("fuse.cc::_create\n");
   struct fuse_entry_param e;
   yfs_client::status ret;
   if( (ret = fuseserver_createhelper( parent, name, mode, &e )) == yfs_client::OK ) {
@@ -242,6 +260,7 @@ fuseserver_create(fuse_req_t req, fuse_ino_t parent, const char *name,
 
 void fuseserver_mknod( fuse_req_t req, fuse_ino_t parent, 
     const char *name, mode_t mode, dev_t rdev ) {
+//  printf("fuse.cc::_mknod\n");
   struct fuse_entry_param e;
   yfs_client::status ret;
   if( (ret = fuseserver_createhelper( parent, name, mode, &e )) == yfs_client::OK ) {
@@ -269,7 +288,15 @@ fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   e.entry_timeout = 0.0;
   e.generation = 0;
   bool found = false;
-
+//  printf("fuse.cc::fuseserver_lookup \n");
+  yfs_client::inum file_ino;
+  yfs_client::status status = yfs->lookup(parent,name,&file_ino);
+  if(status == yfs_client::OK){
+	e.ino = file_ino;
+	getattr(e.ino,e.attr);	
+        found = true;
+  }
+//  printf("fuse.cc::fuseserver_lookup -- file found\n");	
   // You fill this in for Lab 2
   if (found)
     fuse_reply_entry(req, &e);
@@ -321,7 +348,7 @@ fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
   yfs_client::inum inum = ino; // req->in.h.nodeid;
   struct dirbuf b;
 
-  printf("fuseserver_readdir\n");
+//  printf("fuseserver_readdir\n");
 
   if(!yfs->isdir(inum)){
     fuse_reply_err(req, ENOTDIR);
@@ -329,8 +356,27 @@ fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
   }
 
   memset(&b, 0, sizeof(b));
-
-
+  std::string buffer;
+  yfs->readdir(inum,buffer);
+  std::cout<<"fuse.cc::fuse_server_readdir---"<<buffer<<"\n";
+  std::string file_name;
+  std::string file_inum;
+  int start_pos = -1;
+  int delim_pos;
+  int file_delim_pos;
+  for(unsigned int i = 0;i<buffer.size();i++){
+	if(buffer.at(i) == ':'){
+		delim_pos = i;
+		file_inum = buffer.substr(start_pos+1,delim_pos-start_pos-1);
+	}
+	if(buffer.at(i) == ';'){
+		file_delim_pos = i;
+		file_name = buffer.substr(delim_pos+1,file_delim_pos-delim_pos-1);
+		std::cout<<"fuse.cc::fuse_server_readdir-file_name---"<<file_name<<"--file_inum--"<<file_inum<<"\n";
+		dirbuf_add(&b,file_name.c_str(),yfs->n2i(file_inum));
+		start_pos = file_delim_pos;
+	}
+   }
   // You fill this in for Lab 2
 
 

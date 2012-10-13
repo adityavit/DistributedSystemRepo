@@ -117,7 +117,10 @@ sub checkcontent {
     my $c2 = "";
     while(<F>) {
       $c2 .= $_;
+      #print $_;
     }
+    print "\nlength of file\n";
+    print length($c2);
     close(F);
     $files->{$name} eq $c2 or die "content of $f is incorrect\n";
 }
@@ -175,7 +178,9 @@ sub writeat {
     }
     substr($x, $off, length($contents)) = $contents;
     $files->{$name} = $x;
-    
+    print $x;    
+    print "\n";
+    print length($x);
     seek(F, $off, 0);
     syswrite(F, $contents, length($contents), 0)
         or die "cannot write $f at offset $off";
