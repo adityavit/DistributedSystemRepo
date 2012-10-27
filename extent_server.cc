@@ -128,8 +128,12 @@ int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr
 int extent_server::remove(extent_protocol::extentid_t id, int &)
 {
   // You fill this in for Lab 2.
-  if(fileDataMap.find(id) != fileDataMap.end()){
+  map<extent_protocol::extentid_t,Filedata>::iterator it;
+  it = fileDataMap.find(id);
+  if(it != fileDataMap.end()){
 //		printf("extent_server:: remove file from available in the map\n");
+        fileDataMap.erase(it);
+        return extent_protocol::OK; 
 	}
   return extent_protocol::IOERR;
 }
