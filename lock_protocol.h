@@ -14,6 +14,8 @@ class lock_protocol {
   enum rpc_numbers {
     acquire = 0x7001,
     release,
+    attach,
+    unattach,
     stat
   };
 };
