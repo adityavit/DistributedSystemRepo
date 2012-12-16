@@ -295,6 +295,7 @@ lock_client_cache::release(lock_protocol::lockid_t lid)
   }
   pthread_mutex_unlock(&lockMap);
   return lock_protocol::OK;
+
 }
 
 rlock_protocol::status
