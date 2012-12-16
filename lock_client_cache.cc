@@ -89,6 +89,7 @@ void lock_client_cache::releaser(){
             if(lock_map[lid]->lock_status == RELEASING){
                 lock_map[lid]->lock_status = NONE;
 //                pthread_mutex_unlock(&lockMap);
+               lu->dorelease(lid); 
                 int r; 
                 cout<<"lock_client_cache="<<id<<"  calling to server to release the lid="<<lid<<endl;
                 int ret_status = cl->call(lock_protocol::release,lid,id,r);

@@ -2,6 +2,7 @@
 #include "yfs_client.h"
 #include "extent_client.h"
 #include "lock_client_cache.h"
+#include "lock_release_cache_user.cc"
 #include <sstream>
 #include <iostream>
 #include <stdio.h>
@@ -14,11 +15,15 @@ using namespace std;
 yfs_client::yfs_client(std::string extent_dst, std::string lock_dst)
 {
   ec = new extent_client(extent_dst);
-  lc = new lock_client_cache(lock_dst);
+  lock_rel_user = new lock_release_cache_user(ec);
+  lc = new lock_client_cache(lock_dst,lock_rel_user);
   srand ( getpid() );
 //  printf("yfs_client:: adding root directory\n");
   inum root_dir_inum = 0x00000001;
+  lc->acquire(root_dir_inum);
   extent_protocol::status status= ec->put(root_dir_inum,"");
+//  ec->flush(root_dir_inum);
+  lc->release(root_dir_inum);
   printf("yfs_client:: root directory created--- %d\n",status);
 }
 
@@ -60,8 +65,9 @@ yfs_client::getfile(inum inum, fileinfo &fin)
   // You modify this function for Lab 3
   // - hold and release the file lock
 
-//  printf("getfile %016llx\n", inum);
+  printf("getfile %016llx\n", inum);
   extent_protocol::attr a;
+  lc->acquire(inum);
   if (ec->getattr(inum, a) != extent_protocol::OK) {
     r = IOERR;
     goto release;
@@ -71,10 +77,10 @@ yfs_client::getfile(inum inum, fileinfo &fin)
   fin.mtime = a.mtime;
   fin.ctime = a.ctime;
   fin.size = a.size;
-//  printf("getfile %016llx -> sz %llu\n", inum, fin.size);
+  printf("getfile %016llx -> sz %llu\n", inum, fin.size);
 
  release:
-
+    lc->release(inum);
   return r;
 }
 
@@ -85,8 +91,9 @@ yfs_client::getdir(inum inum, dirinfo &din)
   // You modify this function for Lab 3
   // - hold and release the directory lock
 
-//  printf("getdir %016llx\n", inum);
+  printf("getdir %016llx\n", inum);
   extent_protocol::attr a;
+  lc->acquire(inum);
   if (ec->getattr(inum, a) != extent_protocol::OK) {
     r = IOERR;
     goto release;
@@ -96,6 +103,7 @@ yfs_client::getdir(inum inum, dirinfo &din)
   din.ctime = a.ctime;
 
  release:
+  lc->release(inum);
   return r;
 }
 
@@ -109,11 +117,11 @@ yfs_client::getdir(inum inum, dirinfo &din)
 int
 yfs_client::create ( inum inum, std::string  name , yfs_client::inum* finum)
 {
-//  printf("yfs_client:: create \n");
-//  printf("yfs_client::create -- creating a file %16llx \n",inum);
-//  cout << "yfs_client:: create -- file or directory" << isfile(inum) <<"\n";
-//  printf("yfs_client::create -- adding file to extent server\n");
-//  cout<<"yfs_client:: create -- parent file name"<< filename(inum)<<"\n";
+  printf("yfs_client:: create \n");
+  printf("yfs_client::create -- creating a file %16llx \n",inum);
+  cout << "yfs_client:: create -- file or directory" << isfile(inum) <<"\n";
+  printf("yfs_client::create -- adding file to extent server\n");
+  cout<<"yfs_client:: create -- parent file name"<< filename(inum)<<"\n";
   yfs_client::inum file_inum = generate_file_inum();
   *finum = file_inum;
   yfs_client::status return_status;
@@ -126,17 +134,19 @@ yfs_client::create ( inum inum, std::string  name , yfs_client::inum* finum)
 			return_status = EXIST; 
 		}else{
 			//file doesn't exist then create file.
-						
+            lc->acquire(file_inum);						
   			extent_protocol::status status= ec->put(file_inum,"");
-//			printf("yfs_client :: create --- file added\n");
+            lc->release(file_inum);
+			printf("yfs_client :: create --- file added\n");
   			string dir_content = buffer + filename(file_inum)+":"+name +";";
-//			cout<<"yfs_client :: create -- dir buf"<<dir_content<<"\n";
+			cout<<"yfs_client :: create -- dir buf"<<dir_content<<"\n";
 			status = ec->put(inum,dir_content);
 			printf("yfs_client::create file created--- %d\n",status);
             cout<<"yfs_client::create dir content --- "<<dir_content<<"\n";
 		    return_status = OK;
 
 		}				
+//    ec->flush(inum);
     lc->release(inum);
     return return_status;
  }		/* -----  end of function yfs_client::create  ----- */
@@ -150,26 +160,34 @@ yfs_client::create ( inum inum, std::string  name , yfs_client::inum* finum)
 int
 yfs_client::create_dir (inum parent_inum,std::string dir_name,inum* dirinum )
 {
+    cout<<"yfs_client::create_dir start"<<endl;
     yfs_client::inum dir_inum = generate_dir_inum();
     *dirinum = dir_inum;
     yfs_client::status return_status;
     string buffer;
     lc->acquire(parent_inum);
     ec->get(parent_inum,buffer);
+//    lc->release(parent_inum);
         if(buffer.find(dir_name) != string::npos){
             //file already present in the directory
             //Do nothing return EXISTS
             return_status =  EXIST;
         }else{
             //dir doesn't exist then create a dir.
+            lc->acquire(dir_inum);
             extent_protocol::status status = ec->put(dir_inum,"");
+            lc->release(dir_inum);
             string parent_dir_content = buffer + filename(dir_inum)+":"+dir_name +";";
+//            lc->acquire(parent_inum);
             status = ec->put(parent_inum,parent_dir_content);
+//            lc->release(parent_inum);
             printf("yfs_client::mkdir directory created --- %d\n",status);
             cout<<"yfs_client::mkdir parent_dir_content \n"<<parent_dir_content<<"\n";
             return_status = OK;
         }
+//        ec->flush(parent_inum);
         lc->release(parent_inum);
+        cout<<"yfs_client::create_dir end"<<endl;
         return return_status;
 }		/* -----  end of function yfs_client::mkdir  ----- */
 
@@ -183,13 +201,17 @@ yfs_client::create_dir (inum parent_inum,std::string dir_name,inum* dirinum )
 int
 yfs_client::lookup ( inum parent_inum, string file_name,inum* finum )
 {
+    cout<<"yfs_client::lookup start"<<endl;
 	string buffer;
 	string file_inum;
+    lc->acquire(parent_inum);
 	ec->get(parent_inum,buffer);
+//    ec->flush(parent_inum);
+    lc->release(parent_inum);
 	size_t file_name_start = buffer.find(file_name+";");
 	if(file_name_start != string::npos){
 		//file exits now find the inum in the list of the files in the parent.
-//		cout<<"yfs_client::lookup file found --"<<file_name <<"\n";
+		cout<<"yfs_client::lookup file found --"<<file_name <<"\n";
 //		printf("yfs_client::file_start_position ---- %d\n",file_name_start);
 //		size_t file_entry_end = buffer.find(";",file_name_start);
 	//	size_t file_inum_token_start = buffer.find(":",file_name_start);
@@ -203,11 +225,13 @@ yfs_client::lookup ( inum parent_inum, string file_name,inum* finum )
 		}else{
 			file_inum = buffer.substr(indexer+1,file_name_start-1);
 		}
-//		cout<<"yfs_client::lookup file_inum-----"<<file_inum<<"\n";
+		cout<<"yfs_client::lookup file_inum-----"<<file_inum<<"\n";
 		*finum = n2i(file_inum);
-		return OK;
+//        lc->release(parent_inum);
+        		return OK;
 	}
-//	cout<<"yfs_client::lookup file not found---"<<file_name<<"\n";
+//    lc->release(parent_inum);
+	cout<<"yfs_client::lookup file not found---"<<file_name<<"\n";
 	return IOERR;
 }
 		/* -----  end of function yfs_client::lookup  ----- */
@@ -245,7 +269,10 @@ yfs_client::unlink (inum parent_inum,string file_name)
         string dir_list = parent_buffer.replace(file_inum_position,file_token_end_position+1,"");
         cout<<"yfs_client::unlink--parent dir list\n "<<dir_list;
         ec->put(parent_inum,dir_list);
+//        lc->acquire(file_inum);
         removeFiles(file_inum);
+//        lc->release(file_inum);
+//        ec->flush(parent_inum);
         lc->release(parent_inum);
         return_status = OK;
     }else{
@@ -263,8 +290,13 @@ yfs_client::unlink (inum parent_inum,string file_name)
 void
 yfs_client::removeFiles (inum file_inum)
 {
+    cout<<"yfs_client::removeFiles inside remove files"<<endl;
+    lc->acquire(file_inum);
     if(isfile(file_inum)){
+//        lc->acquire(file_inum);
         ec->remove(file_inum);
+//        ec->flush(file_inum);
+//        lc->release(file_inum);
     }else{
 //        string buffer;
 //        ec->get(file_inum,buffer);
@@ -280,6 +312,8 @@ yfs_client::removeFiles (inum file_inum)
 //        }
 //        ec->remove(file_inum);
     }
+    lc->release(file_inum);
+    cout<<"yfs_client::removefiles exit"<<endl;
     return;
 }		/* -----  end of function yfs_client::removeFiles  ----- */
 /* 
@@ -291,7 +325,12 @@ yfs_client::removeFiles (inum file_inum)
 void
 yfs_client::readdir ( inum file_inum,string &buffer)
 {
+    cout<<"yfs_client::readdir start"<<endl;
+    lc->acquire(file_inum);
 	ec->get(file_inum,buffer);	
+//    ec->flush(file_inum);
+    lc->release(file_inum);
+    cout<<"yfs_client::readdir stop"<<endl;
 }		/* -----  end of function yfs_client::readdir  ----- */
 
 /* 
@@ -303,7 +342,12 @@ yfs_client::readdir ( inum file_inum,string &buffer)
 void
 yfs_client::get_file (inum file_inum,string& buffer)
 {
-	ec->get(file_inum,buffer);
+    cout<<"yfs_client get_file start"<<endl;
+    lc->acquire(file_inum);
+	ec->get(file_inum,buffer);	
+//    ec->flush(file_inum);
+    lc->release(file_inum);
+    cout<<"yfs_client::get_file end"<<endl;
 }		/* -----  end of function yfs_client::get_file  ----- */
 
 
@@ -316,22 +360,26 @@ yfs_client::get_file (inum file_inum,string& buffer)
 yfs_client::status
 yfs_client::setattr (inum file_inum,unsigned int file_size)
 {
-//	cout<<"yfs::client:: Inside setattr method\n";
+	cout<<"yfs::client:: Inside setattr method\n";
 	char paddingCharacter = '\0';
 	string buffer;
         string final_buffer;
         get_file(file_inum,buffer);
 	if(buffer.size() > file_size){
-//		cout<<"yfs::client when buffer size is greater than setattr size\n";
+		cout<<"yfs::client when buffer size is greater than setattr size\n";
 		final_buffer = string(buffer,0,file_size);
 	}else if(buffer.size() < file_size){
-//		cout<<"yfs::client when buffer size is less than setattr size\n";
+		cout<<"yfs::client when buffer size is less than setattr size\n";
 		final_buffer = buffer + string(file_size-buffer.size(),paddingCharacter);
 	}else{
 //		cout<<"yfs::client when buffer size is same as setattr size\n";
 		final_buffer = buffer;
 	}
-        yfs_client::status status = ec->put(file_inum,final_buffer);
+    lc->acquire(file_inum);
+    cout<<"yfs_client::setattr end"<<endl;
+    yfs_client::status status = ec->put(file_inum,final_buffer);
+//    ec->flush(file_inum);
+    lc->release(file_inum);
 	return status;
 }		/* -----  end of function yfs_client::setattr  ----- */
 
@@ -344,15 +392,16 @@ yfs_client::setattr (inum file_inum,unsigned int file_size)
 	void
 yfs_client::read (inum file_inum,size_t offset,size_t buffer_size,string& buffer )
 {
-//	cout<<"yfs_client::read file read -- at offset--"<<offset<<"--buffer_size--"<<buffer_size<<"\n";
+	cout<<"yfs_client::read file read -- at offset--"<<offset<<"--buffer_size--"<<buffer_size<<"\n";
 	string file_data;
-    lc->acquire(file_inum);
+//    lc->acquire(file_inum);
 	get_file(file_inum,file_data);
         buffer = "";
 	if(offset < file_data.size()){
 		buffer = file_data.substr(offset,buffer_size);
 	}	
-    lc->release(file_inum);
+//    ec->flush(file_inum);
+//    lc->release(file_inum);
 }		/* -----  end of function yfs_client::read  ----- */
 
 /* 
@@ -365,12 +414,13 @@ void
 yfs_client::write (inum file_inum,const char* buffer,size_t buffer_size,size_t offset)
 {
 //	char paddingChar = '0';
+    cout<<"yfs_client::write"<<endl;
 	string file_data;
 	string write_string;
 	string buffer_str = buffer;
     lc->acquire(file_inum);
 	ec->get(file_inum,file_data);
-//	cout<<"yfs_client::write -- offset--"<<offset<<"--buffer--"<<buffer<<"--buffer_size--"<<buffer_size<<"file-data---size---"<<file_data.size()<<"\n";
+	cout<<"yfs_client::write -- offset--"<<offset<<"--buffer--"<<buffer<<"--buffer_size--"<<buffer_size<<"file-data---size---"<<file_data.size()<<"\n";
 	if(buffer_str.size() >= buffer_size){
 		write_string = buffer_str.substr(0,buffer_size);
 	}else{
@@ -387,6 +437,7 @@ yfs_client::write (inum file_inum,const char* buffer,size_t buffer_size,size_t o
 		file_data.replace(offset,buffer_size,write_string);
 	}
 	ec->put(file_inum,file_data);
+//    ec->flush(file_inum);
     lc->release(file_inum);
 }		/* -----  end of function yfs_client::write  ----- */
 

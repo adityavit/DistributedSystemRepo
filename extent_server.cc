@@ -15,16 +15,16 @@ extent_server::extent_server() {}
 int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &)
 {
   // You fill this in for Lab 2.
-//  printf("extent_server:: put \n");
+  printf("extent_server:: put \n");
   if(is_inum_present(id)){
-//    printf("extent_server:: put -- file found\n");
+    printf("extent_server:: put -- file found\n");
     //Found the entry in the map.
     fileDataMap[id].file_content = buf;
     fileDataMap[id].file_attr.size = fileDataMap[id].file_content.size();
     fileDataMap[id].file_attr.ctime = time(NULL);
     fileDataMap[id].file_attr.mtime = time(NULL);
     }else{
-//      printf("extent_server:: put -- file not found\n");
+      printf("extent_server:: put -- file not found\n");
       Filedata* file_data = new filedata;
       extent_protocol::attr* file_attrib = new extent_protocol::attr;
       file_attrib->ctime = time(NULL);
@@ -79,16 +79,16 @@ int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &)
  *     }
  *   }
  */
-//  print_directory_list();
+  print_directory_list();
   return extent_protocol::OK;
 }
 
 int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
 {
   // You fill this in for Lab 2.
-//  printf("extent_server :: get \n");
+  printf("extent_server :: get \n");
   if(fileDataMap.find(id) != fileDataMap.end()){
-//	printf("extent_server :: get -- file found\n");
+	printf("extent_server :: get -- file found\n");
 //  if(isfile(id)){
     buf = fileDataMap[id].file_content;
 	  fileDataMap[id].file_attr.atime = time(NULL);  
@@ -108,13 +108,13 @@ int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
 
 int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr &a)
 {
-//  printf("extent_server:: getattr \n");
+  printf("extent_server:: getattr \n");
   // You fill this in for Lab 2.
   // You replace this with a real implementation. We send a phony response
   // for now because it's difficult to get FUSE to do anything (including
   // unmount) if getattr fails.
   if(fileDataMap.find(id) != fileDataMap.end()){
-//	printf("extent_server:: getattr file found\n");
+	cout<<"extent_server:: getattr file found"<<id<<endl;
 	 a = fileDataMap[id].file_attr;
 	 return extent_protocol::OK;
 	}
@@ -131,11 +131,11 @@ int extent_server::remove(extent_protocol::extentid_t id, int &)
   map<extent_protocol::extentid_t,Filedata>::iterator it;
   it = fileDataMap.find(id);
   if(it != fileDataMap.end()){
-//		printf("extent_server:: remove file from available in the map\n");
+		printf("extent_server:: remove file from available in the map\n");
         fileDataMap.erase(it);
         return extent_protocol::OK; 
 	}
-  return extent_protocol::IOERR;
+  return extent_protocol::OK;
 }
 bool
 extent_server::isfile(extent_protocol::extentid_t inum)

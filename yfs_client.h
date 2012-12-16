@@ -8,10 +8,11 @@
 
 #include "lock_protocol.h"
 #include "lock_client.h"
-
+#include "lock_client_cache.h"
 class yfs_client {
   extent_client *ec;
   lock_client *lc;
+  lock_release_user* lock_rel_user;
  public:
 
   typedef unsigned long long inum;

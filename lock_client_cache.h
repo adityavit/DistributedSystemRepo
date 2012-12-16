@@ -8,6 +8,7 @@
 #include "lock_protocol.h"
 #include "rpc.h"
 #include "lock_client.h"
+#include "extent_client.h"
 #include "lang/verify.h"
 #include <map>
 #include <list>
@@ -19,6 +20,13 @@ class lock_release_user {
  public:
   virtual void dorelease(lock_protocol::lockid_t) = 0;
   virtual ~lock_release_user() {};
+};
+class lock_release_cache_user : public lock_release_user{
+    extent_client* extent_cl;
+    public:
+        lock_release_cache_user(extent_client*);
+        void dorelease(lock_protocol::lockid_t);
+        ~lock_release_cache_user();
 };
 
 class lock_client_cache : public lock_client {
